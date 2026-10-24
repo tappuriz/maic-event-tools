@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="connpassイベントのLT進行とテーブルトークのグループ分けを支援します。">
+  <title>MAIC Event Manager</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1>MAIC Event Manager</h1>
+    <nav class="tabs" aria-label="画面切り替え">
+      <button class="tab-button is-active" type="button" data-tab="timer">⏱ LTタイマー</button>
+      <button class="tab-button" type="button" data-tab="groups">🎲 グループ分け</button>
+      <button class="tab-button" type="button" data-tab="settings">⚙ 設定・データ</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="timer" class="tab-panel is-active" aria-labelledby="timer-title">
+      <div class="timer-layout">
+        <div class="timer-meta">
+          <label for="speaker-name">登壇者名 / LTタイトル</label>
+          <input id="speaker-name" type="text" placeholder="例：山田太郎「AIで業務改善」">
+        </div>
+        <h2 id="timer-title" class="screen-reader-only">LTタイマー</h2>
+        <p id="timer-status" class="timer-status" aria-live="polite">READY</p>
+        <output id="timer-display" class="timer-display" aria-live="off">05:00</output>
+        <p id="timer-message" class="timer-message">開始を待っています</p>
+        <div class="preset-buttons" aria-label="時間プリセット">
+          <button type="button" data-seconds="180">3分</button>
+          <button type="button" data-seconds="300" class="is-selected">5分</button>
+          <button type="button" data-seconds="420">7分</button>
+          <button type="button" data-seconds="600">10分</button>
+          <button type="button" data-seconds="120">質疑 2分</button>
+        </div>
+        <div class="custom-time">
+          <label>カスタム
+            <input id="custom-minutes" type="number" min="0" max="99" value="5" aria-label="分">
+            分
+          </label>
+          <label>
+            <input id="custom-seconds" type="number" min="0" max="59" value="0" aria-label="秒">
+            秒
+          </label>
+          <button id="apply-custom-time" type="button">設定</button>
+        </div>
+        <div class="timer-controls">
+          <button id="start-pause-button" type="button" class="primary">スタート</button>
+          <button id="reset-timer-button" type="button">リセット</button>
+          <button id="mute-button" type="button" aria-pressed="false">🔊 音あり</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="groups" class="tab-panel" aria-labelledby="groups-title" hidden>
+      <div class="section-heading">
+        <div>
+          <h2 id="groups-title">テーブルトーク グループ分け</h2>
+          <p>参加者を調整してから、学生を分散してテーブルへ配置します。</p>
+        </div>
+        <p id="participant-summary" class="summary">CSVを読み込んでください</p>
+      </div>
+      <div class="group-controls">
+        <label for="group-count">グループ数
+          <input id="group-count" type="number" min="1" step="1" inputmode="numeric">
+        </label>
+        <button id="auto-group-count" type="button">自動計算</button>
+        <button id="generate-groups" type="button" class="primary">グループを作成</button>
+        <button id="reshuffle-groups" type="button" disabled>もう一回シャッフル</button>
+        <button id="fullscreen-groups" type="button" disabled>⛶ 全画面表示</button>
+        <label class="toggle-label"><input id="show-student-badges" type="checkbox"> 学生バッジを表示</label>
+      </div>
+      <p id="group-notice" class="notice" role="status"></p>
+      <div id="group-results" class="group-results" aria-live="polite"></div>
+    </section>
+
+    <section id="settings" class="tab-panel" aria-labelledby="settings-title" hidden>
+      <div class="settings-grid">
+        <div class="settings-card">
+          <h2 id="settings-title">参加者CSV</h2>
+          <p>connpassの参加者管理CSVを読み込みます。データはこのブラウザ内でのみ処理され、外部送信されません。</p>
+          <label id="drop-zone" class="drop-zone" for="csv-file">
+            <strong>CSVをドロップ</strong>
+            <span>またはファイルを選択</span>
+            <input id="csv-file" type="file" accept=".csv,text/csv">
+          </label>
+          <p id="import-status" class="notice" role="status"></p>
+        </div>
+        <div class="settings-card">
+          <h2>学生リスト</h2>
+          <p>connpassユーザー名を改行区切りで入力します。大文字・小文字や前後の空白は区別しません。</p>
+          <textarea id="student-list" rows="11" spellcheck="false"></textarea>
+          <div class="inline-actions">
+            <button id="save-students" type="button" class="primary">保存</button>
+            <button id="reset-students" type="button">初期値に戻す</button>
+          </div>
+          <p id="student-status" class="notice" role="status"></p>
+        </div>
+      </div>
+
+      <section class="participant-editor" aria-labelledby="participant-editor-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="participant-editor-title">当日参加者の調整</h2>
+            <p>除外にチェックした参加者はリストに残したまま、グループ分けの対象から外せます。</p>
+          </div>
+          <button id="add-participant" type="button">飛び入り参加者を追加</button>
+        </div>
+        <div id="manual-participant-form" class="manual-form" hidden>
+          <label>表示名 <input id="manual-name" type="text" maxlength="80"></label>
+          <label>ユーザー名（任意） <input id="manual-username" type="text" maxlength="80"></label>
+          <label class="toggle-label"><input id="manual-student" type="checkbox"> 学生</label>
+          <label class="toggle-label"><input id="manual-excluded" type="checkbox"> 除外</label>
+          <button id="save-manual-participant" type="button" class="primary">追加</button>
+          <button id="cancel-manual-participant" type="button">閉じる</button>
+        </div>
+        <div id="participant-list" class="participant-list">
+          <p class="empty-state">CSVを読み込むと参加者がここに表示されます。</p>
+        </div>
+      </section>
+
+      <section class="reference-participants" aria-labelledby="reference-participants-title">
+        <div class="section-heading">
+          <div>
+            <h2 id="reference-participants-title">参考：グループ分け対象外の参加者</h2>
+            <p>キャンセル者と、出欠ステータスが未登録の参加者を確認できます。</p>
+          </div>
+          <p id="reference-participant-summary" class="summary">CSVを読み込んでください</p>
+        </div>
+        <div class="reference-grid">
+          <section class="reference-card" aria-labelledby="cancelled-participants-title">
+            <h3 id="cancelled-participants-title">キャンセル</h3>
+            <div id="cancelled-participant-list" class="reference-list"></div>
+          </section>
+          <section class="reference-card" aria-labelledby="pending-attendance-title">
+            <h3 id="pending-attendance-title">出欠未登録</h3>
+            <div id="pending-attendance-list" class="reference-list"></div>
+          </section>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
