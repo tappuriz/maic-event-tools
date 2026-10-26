@@ -1,4 +1,5 @@
 const STORAGE_KEY = "maic-event-manager-students";
+const GROUP_SHUFFLE_ANIMATION_DURATION = 1800;
 const STUDENTS_FILE = "students.json";
 const storedStudents = loadStudents();
 const state = {
@@ -20,6 +21,8 @@ const els = {
   timerMessage: $("#timer-message"),
   startPause: $("#start-pause-button"),
   resetTimer: $("#reset-timer-button"),
+  fullscreenTimer: $("#fullscreen-timer"),
+  timerNotice: $("#timer-notice"),
   mute: $("#mute-button"),
   customMinutes: $("#custom-minutes"),
   customSeconds: $("#custom-seconds"),
@@ -28,6 +31,7 @@ const els = {
   importStatus: $("#import-status"),
   students: $("#student-list"),
   studentStatus: $("#student-status"),
+  studentFile: $("#student-file"),
   participantList: $("#participant-list"),
   participantSummary: $("#participant-summary"),
   referenceParticipantSummary: $("#reference-participant-summary"),
@@ -37,6 +41,7 @@ const els = {
   groupNotice: $("#group-notice"),
   groupResults: $("#group-results"),
   reshuffle: $("#reshuffle-groups"),
+  replay: $("#replay-groups"),
   fullscreenGroups: $("#fullscreen-groups"),
   showStudentBadges: $("#show-student-badges"),
   manualForm: $("#manual-participant-form"),
@@ -80,7 +85,27 @@ async function loadDefaultStudents() {
     renderParticipants();
   } catch (error) {
     console.error("初期学生リストを読み込めませんでした。", error);
-    els.studentStatus.textContent = `初期学生リストを読み込めませんでした。${STUDENTS_FILE}を用意するか、画面で入力して保存してください。`;
+    els.studentStatus.textContent = location.protocol === "file:"
+      ? `ファイルを直接開いているため${STUDENTS_FILE}を自動読み込みできません。「students.jsonを読み込む」から選択するか、ローカルWebサーバーで開いてください。`
+      : `初期学生リストを読み込めませんでした。${STUDENTS_FILE}を用意するか、画面で入力して保存してください。`;
+  }
+}
+
+async function importStudentsFile(file) {
+  if (!file) return;
+  try {
+    const names = JSON.parse(await file.text());
+    if (!Array.isArray(names) || names.some((name) => typeof name !== "string")) {
+      throw new Error("ユーザー名のJSON配列を指定してください。");
+    }
+    els.students.value = [...new Set(names.map((name) => name.trim()).filter(Boolean))].join("\n");
+    saveStudents();
+    els.studentStatus.textContent = `${state.studentNames.length}名の学生リストを読み込み、ブラウザに保存しました。`;
+  } catch (error) {
+    console.error("学生リストファイルを読み込めませんでした。", error);
+    els.studentStatus.textContent = `学生リストファイルを読み込めませんでした：${error.message}`;
+  } finally {
+    els.studentFile.value = "";
   }
 }
 
@@ -290,11 +315,18 @@ function renderParticipants() {
     row.className = `participant-row${participant.isExcluded ? " is-excluded" : ""}`;
     const excludedChecked = participant.isExcluded ? "checked" : "";
     const student = participant.studentOverride ?? studentSet.has(normalise(participant.username));
+    const studentChecked = student ? "checked" : "";
     row.innerHTML = `<label class="exclusion-toggle"><input data-participant-action="excluded" type="checkbox" ${excludedChecked} aria-label="${escapeHtml(participant.displayName)}を除外する"> 除外</label>
       <span class="participant-details"><span class="participant-name">${escapeHtml(participant.displayName)}${student ? '<span class="badge">学生</span>' : ""}</span>
-      <br><span class="participant-username">@${escapeHtml(participant.username || "飛び入り")}</span></span>`;
+      <br><span class="participant-username">@${escapeHtml(participant.username || "飛び入り")}</span></span>
+      <label class="student-toggle"><input data-participant-action="student" type="checkbox" ${studentChecked}> 学生</label>`;
     row.querySelector('[data-participant-action="excluded"]').addEventListener("change", (event) => {
       participant.isExcluded = event.target.checked;
+      renderParticipants();
+      resetGroups();
+    });
+    row.querySelector('[data-participant-action="student"]').addEventListener("change", (event) => {
+      participant.studentOverride = event.target.checked;
       renderParticipants();
       resetGroups();
     });
@@ -409,8 +441,10 @@ function generateGroups() {
       repeatedPairCount = candidateRepeatedPairCount;
     }
   }
+  state.prevGroups = state.groups;
   state.groups = groups;
   renderGroups(groups);
+  els.replay.disabled = !state.prevGroups;
   const sizes = groups.map((group) => group.length);
   const invalidSize = sizes.some((size) => size < 4 || size > 5);
   const groupMessage = invalidSize
@@ -426,17 +460,40 @@ function generateGroups() {
   els.fullscreenGroups.disabled = false;
 }
 
-function renderGroups(groups) {
+function renderGroups(groups, animate = true) {
+  const firstItems = new Map([...els.groupResults.querySelectorAll("li[data-id]")].map((li) => [
+    li.dataset.id,
+    {
+      rect: li.getBoundingClientRect(),
+      groupLabel: li.closest(".group-card")?.dataset.groupLabel
+    }
+  ]));
   const columns = groups.length <= 2 ? groups.length : groups.length <= 4 ? 2 : 3;
   els.groupResults.style.setProperty("--group-columns", columns);
   els.groupResults.replaceChildren(...groups.map((group, index) => {
     const card = document.createElement("article");
     card.className = "group-card";
     const tableNumber = index + 1;
-    card.innerHTML = `<h3>グループ ${String.fromCharCode(65 + index)} <small>（テーブル${tableNumber}）</small></h3>
-      <ol>${group.map((participant) => `<li>${escapeHtml(participant.displayName)}${els.showStudentBadges.checked && participant.isStudent ? '<span class="badge">学生</span>' : ""}</li>`).join("")}</ol>`;
+    const groupLabel = `グループ ${String.fromCharCode(65 + index)}`;
+    card.dataset.groupLabel = groupLabel;
+    card.innerHTML = `<h3>${groupLabel} <small>（テーブル${tableNumber}）</small></h3>
+      <ol>${group.map((participant) => {
+        const previousItem = firstItems.get(String(participant.id));
+        const originLabel = previousItem?.groupLabel !== groupLabel ? previousItem?.groupLabel : "";
+        return `<li data-id="${escapeHtml(String(participant.id))}">${escapeHtml(participant.displayName)}${originLabel ? `<span class="move-origin">${escapeHtml(originLabel)}から</span>` : ""}${els.showStudentBadges.checked && participant.isStudent ? '<span class="badge">学生</span>' : ""}</li>`;
+      }).join("")}</ol>`;
     return card;
   }));
+  if (!animate || !firstItems.size || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  els.groupResults.querySelectorAll("li[data-id]").forEach((li) => {
+    const previousItem = firstItems.get(li.dataset.id);
+    if (!previousItem) return;
+    const last = li.getBoundingClientRect();
+    const dx = previousItem.rect.left - last.left;
+    const dy = previousItem.rect.top - last.top;
+    if (!dx && !dy) return;
+    li.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: GROUP_SHUFFLE_ANIMATION_DURATION, easing: "cubic-bezier(.4,0,.2,1)" });
+  });
 }
 
 function resetGroups() {
@@ -444,6 +501,8 @@ function resetGroups() {
   els.groupResults.replaceChildren();
   els.groupResults.style.removeProperty("--group-columns");
   els.reshuffle.disabled = true;
+  state.prevGroups = null;
+  els.replay.disabled = true;
   els.fullscreenGroups.disabled = true;
   els.groupNotice.textContent = "";
   els.groupCount.value = state.participants.length ? calculateGroupCount(getActiveParticipants().length) : "";
@@ -490,6 +549,7 @@ els.csvFile.addEventListener("change", (event) => importCsv(event.target.files[0
 }));
 els.dropZone.addEventListener("drop", (event) => importCsv(event.dataTransfer.files[0]));
 $("#save-students").addEventListener("click", saveStudents);
+els.studentFile.addEventListener("change", (event) => importStudentsFile(event.target.files[0]));
 $("#reset-students").addEventListener("click", () => {
   try {
     localStorage.removeItem(STORAGE_KEY);
@@ -509,6 +569,11 @@ $("#auto-group-count").addEventListener("click", () => {
 });
 $("#generate-groups").addEventListener("click", generateGroups);
 els.reshuffle.addEventListener("click", generateGroups);
+els.replay.addEventListener("click", () => {
+  if (!state.prevGroups || !state.groups) return;
+  renderGroups(state.prevGroups, false);
+  renderGroups(state.groups);
+});
 els.fullscreenGroups.addEventListener("click", async () => {
   try {
     if (document.fullscreenElement) {
@@ -520,8 +585,22 @@ els.fullscreenGroups.addEventListener("click", async () => {
     els.groupNotice.textContent = `全画面表示に切り替えられませんでした：${error.message}`;
   }
 });
+els.fullscreenTimer.addEventListener("click", async () => {
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await $("#timer").requestFullscreen();
+    }
+  } catch (error) {
+    els.timerNotice.textContent = `全画面表示に切り替えられませんでした：${error.message}`;
+  }
+});
 document.addEventListener("fullscreenchange", () => {
-  els.fullscreenGroups.textContent = document.fullscreenElement ? "⛶ 全画面を終了" : "⛶ 全画面表示";
+  const isGroupsFullscreen = document.fullscreenElement === $("#groups");
+  const isTimerFullscreen = document.fullscreenElement === $("#timer");
+  els.fullscreenGroups.textContent = isGroupsFullscreen ? "⛶ 全画面を終了" : "⛶ 全画面表示";
+  els.fullscreenTimer.textContent = isTimerFullscreen ? "⛶ 全画面を終了" : "⛶ 全画面表示";
 });
 els.showStudentBadges.addEventListener("change", () => {
   if (state.groups) renderGroups(state.groups);

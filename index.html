@@ -50,7 +50,9 @@
           <button id="start-pause-button" type="button" class="primary">スタート</button>
           <button id="reset-timer-button" type="button">リセット</button>
           <button id="mute-button" type="button" aria-pressed="false">🔊 音あり</button>
+          <button id="fullscreen-timer" type="button">⛶ 全画面表示</button>
         </div>
+        <p id="timer-notice" class="notice" role="status"></p>
       </div>
     </section>
 
@@ -69,6 +71,7 @@
         <button id="auto-group-count" type="button">自動計算</button>
         <button id="generate-groups" type="button" class="primary">グループを作成</button>
         <button id="reshuffle-groups" type="button" disabled>もう一回シャッフル</button>
+        <button id="replay-groups" type="button" disabled>動きをもう一度再生</button>
         <button id="fullscreen-groups" type="button" disabled>⛶ 全画面表示</button>
         <label class="toggle-label"><input id="show-student-badges" type="checkbox"> 学生バッジを表示</label>
       </div>
@@ -95,6 +98,9 @@
           <div class="inline-actions">
             <button id="save-students" type="button" class="primary">保存</button>
             <button id="reset-students" type="button">初期値に戻す</button>
+            <label class="student-file-picker">students.jsonを読み込む
+              <input id="student-file" type="file" accept=".json,application/json">
+            </label>
           </div>
           <p id="student-status" class="notice" role="status"></p>
         </div>
